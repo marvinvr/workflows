@@ -1,0 +1,28 @@
+name: ansible-common access
+description: >
+  Lets git (and ansible-galaxy) clone the private repo marvinvr/ansible-common with a
+  read-only deploy key. requirements.yml keeps its https URL; git rewrites it to SSH.
+  The key is used from a file via core.sshCommand, never loaded into an ssh-agent, so
+  ForwardAgent to managed hosts cannot leak it.
+inputs:
+  ssh-key:
+    description: Private deploy key (secrets.ANSIBLE_COMMON_DEPLOY_KEY)
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Configure git for marvinvr/ansible-common
+      shell: bash
+      env:
+        KEY: ${{ inputs.ssh-key }}
+      run: |
+        set -euo pipefail
+        if [ -z "$KEY" ]; then echo "::error::ANSIBLE_COMMON_DEPLOY_KEY is empty"; exit 1; fi
+        dir="$RUNNER_TEMP/ansible-common-ssh"
+        mkdir -p "$dir"
+        printf '%s\n' "$KEY" > "$dir/key"
+        chmod 600 "$dir/key"
+        # GitHub's published ed25519 host key (docs.github.com, SSH key fingerprints)
+        echo 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > "$dir/known_hosts"
+        git config --global url."git@github.com:marvinvr/ansible-common".insteadOf "https://github.com/marvinvr/ansible-common"
+        git config --global core.sshCommand "ssh -i $dir/key -o IdentitiesOnly=yes -o UserKnownHostsFile=$dir/known_hosts -o StrictHostKeyChecking=yes"
