@@ -33,7 +33,9 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    # Push/tag builds run on the self-hosted runners on build (homelab repo ci/); PR checks
+    # (incl. forks) stay on GitHub-hosted runners and never touch that machine.
+    runs-on: ${{ github.event_name == 'push' && fromJSON('["self-hosted","build"]') || 'ubuntu-24.04' }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -56,8 +58,12 @@ jobs:
         id: tag
         run: echo "tag=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
+      # Self-hosted: build with the host's Docker daemon, whose layer cache persists across
+      # runs. GitHub-hosted: a fresh builder with the gha cache.
       - name: Set up Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver: ${{ runner.environment == 'self-hosted' && 'docker' || 'docker-container' }}
 
       - name: Log in to ghcr.io
         uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
@@ -79,8 +85,8 @@ jobs:
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-          cache-from: type=gha,scope=${{ inputs.app }}
-          cache-to: type=gha,mode=max,scope=${{ inputs.app }}
+          cache-from: ${{ runner.environment != 'self-hosted' && format('type=gha,scope={0}', inputs.app) || '' }}
+          cache-to: ${{ runner.environment != 'self-hosted' && format('type=gha,mode=max,scope={0}', inputs.app) || '' }}
           secrets: |
             SENTRY_AUTH_TOKEN=${{ secrets.SENTRY_AUTH_TOKEN }}
 
